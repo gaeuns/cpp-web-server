@@ -1,0 +1,15 @@
+# 1. CMake 빌드 디렉토리 (가장 중요)
+build/
+
+# 2. 컴파일된 바이너리 및 오브젝트 파일
+*.o
+*.out
+*.exe
+server
+
+# 3. 에디터 설정 파일 (선택)
+.vscode/
+
+# 4. OS 임시 파일
+.DS_Store
+Thumbs.db
