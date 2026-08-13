@@ -7,7 +7,12 @@
 
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
+#include <fstream>
+#include <string>
+
+using namespace std;
 
 namespace {
 constexpr size_t kRecvBufferSize = 4096;
@@ -31,14 +36,14 @@ int Server::createAndBindSocket() {
                     // IPv4 주소체계, TCP 방식 사용
     int fd = socket(AF_INET, SOCK_STREAM, 0);   // 만들어진 소켓은 파일 디스크립터라는 정수로 OS가 관리
     if (fd < 0) {
-        throw std::runtime_error("socket() failed");
+        throw runtime_error("socket() failed");
     }
 
     //포트 묶임 방지
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         close(fd);
-        throw std::runtime_error("setsockopt(SO_REUSEADDR) failed");
+        throw runtime_error("setsockopt(SO_REUSEADDR) failed");
     }
 
     sockaddr_in addr{};
@@ -49,7 +54,7 @@ int Server::createAndBindSocket() {
     // 소켓을 8080 포트에 붙임
     if (bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         close(fd);
-        throw std::runtime_error("bind() failed");
+        throw runtime_error("bind() failed");
     }
 
     return fd;
@@ -57,11 +62,11 @@ int Server::createAndBindSocket() {
 
 void Server::run() {
     if (listen(serverFd_, backlog_) < 0) {  // 대기열 생성
-        throw std::runtime_error("listen() failed");
+        throw runtime_error("listen() failed");
     }
 
     running_ = true;
-    std::cout << "Server listening on port " << port_ << std::endl;
+    cout << "Server listening on port " << port_ << endl;
     acceptLoop();
 }
 
@@ -76,7 +81,7 @@ void Server::acceptLoop() {
         int clientFd = accept(serverFd_, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
         if (clientFd < 0) {
             if (!running_) break;  // stop()으로 인한 정상 종료
-            std::cerr << "accept() failed, errno=" << errno << std::endl;
+            cerr << "accept() failed, errno=" << errno << endl;
             continue;
         }
 
@@ -96,16 +101,82 @@ void Server::handleClient(int clientFd) {
     }
     buffer[bytesRead] = '\0';
 
-    // TODO: 실제 HTTP 파싱/라우팅은 여기서 buffer(요청 원문)를 기반으로 구현
+    // buffer(요청 원문)를 한 줄씩 파싱할 수 있도록 istringstream으로 감쌈
+    istringstream requestStream(buffer);
+    string methode, path, version;
+
+    requestStream >> methode >>path >> version;
+
+    cout << "methode : " << methode << "\n";
+    cout << "path : " << path << "\n";
+    cout << "version : " << version << "\n";
+    cout << "--------------------------\n";
+
+    //cout << "--- 클라이언트 요청 원문 ---\n";
+    //cout << buffer << "\n";
+    // cout << "--------------------------\n";
+
+    string status, body;
+    string realPath = path;
+    string query;
+    string filePath = "../public/index.html";
+    string fileType = "text/html";
+    size_t qMark = path.find("?");
+
+    // 쿼리 분리, 파일 경로 지정
+    if(qMark!=string::npos){
+        realPath = path.substr(0, qMark);
+        query = path.substr(qMark + 1);
+        filePath = "../public" + realPath;
+    }
+    else if(path!="/"){
+        filePath = "../public" + realPath;
+    }
+
+    if(path.find(".css") != string::npos){
+        fileType = "text/css";
+    }
+    if (realPath.find("/api/") == 0) {
+        fileType = "application/json; charset=utf-8";
+        status = "200 OK";
+
+        if (realPath == "/api/search") {
+            body = R"({
+                "status": "success",
+                "query": ")" + query + R"(",
+                "message": "데이터를 성공적으로 찾았습니다."
+            })";
+        }
+        else if (realPath == "/api/hello") {
+            body = R"({"status": "success", "message": "하이"})";
+        }
+        else {
+            status = "404 Not Found";
+            body = R"({"status": "error", "message": "API 경로를 찾을 수 없습니다."})";
+        }
+    }
+    else{
+        ifstream file(filePath);
+        if(file.is_open()){
+            ostringstream ost;
+            ost << file.rdbuf();
+            body = ost.str();
+            status = "200 OK";
+        }
+        else{
+            status = "404 Not Found";
+            body = "404 Page Not Found";
+        }
+    }
 
     // 클라이언트에게 보낼 HTTP 응답 규격을 문자열로 만들어서 전송하고 연결 해제
-    std::string response =
-        "HTTP/1.1 200 OK\r\n"   // HTTP 규격상 줄바꿈은 \r\n 사용
-        "Content-Type: text/plain\r\n"
-        "Content-Length: " + std::to_string(std::strlen(kResponseBody)) + "\r\n"
+    string response =
+        version + " " + status + "\r\n"   // HTTP 규격상 줄바꿈은 \r\n 사용
+        "Content-Type: " + fileType + "\r\n"
+        "Content-Length: " + to_string(body.size()) + "\r\n"
         "Connection: close\r\n"
         "\r\n" +    // 헤더와 바디 사이에 빈 줄이 하나 있어야함
-        kResponseBody;
+        body;
 
     send(clientFd, response.c_str(), response.size(), 0);
     close(clientFd);
