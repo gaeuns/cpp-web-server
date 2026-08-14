@@ -11,6 +11,11 @@
 #include <stdexcept>
 #include <fstream>
 #include <string>
+#include <thread>
+#include <chrono>
+#include <vector>
+#include <unordered_map>
+#include <functional>
 
 using namespace std;
 
@@ -19,6 +24,12 @@ constexpr size_t kRecvBufferSize = 4096;
 
 const char* kResponseBody = "Hello from cpp-multithread-server\n";
 }  // namespace
+
+vector<Data> DB = {
+    {1, "원피스", "너무 길어서 볼 엄두가 안 남"},
+    {2, "나루토", "이타치ㅜㅜ"},
+    {3, "블리치", "흩날려라 천본앵"}
+};
 
 Server::Server(uint16_t port, size_t numWorkers, int backlog)
     : port_(port), backlog_(backlog), serverFd_(-1), running_(false), pool_(numWorkers) {
@@ -119,6 +130,9 @@ void Server::handleClient(int clientFd) {
     string status, body;
     string realPath = path;
     string query;
+    string searchWord;
+    string temp, realTemp;
+    string decodedStr;
     string filePath = "../public/index.html";
     string fileType = "text/html";
     size_t qMark = path.find("?");
@@ -136,21 +150,44 @@ void Server::handleClient(int clientFd) {
     if(path.find(".css") != string::npos){
         fileType = "text/css";
     }
+    
     if (realPath.find("/api/") == 0) {
         fileType = "application/json; charset=utf-8";
         status = "200 OK";
 
-        if (realPath == "/api/search") {
-            body = R"({
-                "status": "success",
-                "query": ")" + query + R"(",
-                "message": "데이터를 성공적으로 찾았습니다."
-            })";
-        }
-        else if (realPath == "/api/hello") {
-            body = R"({"status": "success", "message": "하이"})";
-        }
-        else {
+        unordered_map<string, function<void()>> apiRouter;
+
+        apiRouter["/api/search"] = [&]() {
+            if(query.find("=")!=string::npos){
+                searchWord = query.substr(query.find("=") + 1);
+
+                for(int i = 0; i < searchWord.length(); i++){
+                    if(searchWord[i]=='%'){
+                        temp = searchWord.substr(i+1, 2);
+                        realTemp = stoi(temp, nullptr, 16);
+                        decodedStr += realTemp;
+                        i+=2;
+                    }
+                    else{
+                        decodedStr += searchWord[i];
+                    }
+                }
+
+                for(int i = 0; i < DB.size(); i++) {
+                    if(DB[i].name==decodedStr){
+                        body = R"({
+                            "status": "success",
+                            "query": ")" + decodedStr + R"(",
+                            "message": ")" + DB[i].description + R"("
+                        })";
+                    }
+                }
+            }
+        };
+
+        if(apiRouter.count(realPath)){
+            apiRouter[realPath]();
+        }else{
             status = "404 Not Found";
             body = R"({"status": "error", "message": "API 경로를 찾을 수 없습니다."})";
         }

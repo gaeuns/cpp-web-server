@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 #include "ThreadPool.hpp"
 
@@ -26,4 +27,11 @@ private:
     int serverFd_;
     std::atomic<bool> running_;
     ThreadPool pool_;
+};
+
+struct Data
+{
+    int id;
+    std::string name;
+    std::string description;
 };
